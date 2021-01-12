@@ -18,28 +18,7 @@ class GradCAM:
     def save_gradient(self, grad):
         self.saved_gradient = grad
 
-    def __call__(self, img, target_category=None):
-        if self.use_cuda:
-            img = img.cuda()
-        img.requires_grad_()
-
-        output = img
-        for name, module in self.model.named_children():
-            if module == self.target_module:
-                for _, sub_module in module.named_children():
-                    A = sub_module(output)
-                    output = A
-                    if sub_module == self.target_layer:
-                        output.register_hook(self.save_gradient)
-            else:
-                output = module(output)
-
-            if "avgpool" in name.lower():
-                output = output.view(output.size(0), -1)
-
-        if target_category is None:
-            target_category = torch.argmax(output)
-
+    def get_cam(self, img, A, output, target_category):
         one_hot = torch.zeros_like(output)
         one_hot[0][target_category] = 1
         one_hot.requires_grad_()
@@ -56,3 +35,32 @@ class GradCAM:
         cam = cam - np.min(cam)
         cam = cam / np.max(cam)
         return cam
+
+    def __call__(self, img, target_categories=None):
+        if self.use_cuda:
+            img = img.cuda()
+
+        cams = {}
+
+        output = img
+        for name, module in self.model.named_children():
+            if module == self.target_module:
+                for _, sub_module in module.named_children():
+                    A = sub_module(output)
+                    output = A
+                    if sub_module == self.target_layer:
+                        output.register_hook(self.save_gradient)
+            else:
+                output = module(output)
+
+            if "avgpool" in name.lower():
+                output = output.view(output.size(0), -1)
+
+        if target_categories is None:
+            target_categories = [torch.argmax(output)]
+
+        for category in target_categories:
+            cam = self.get_cam(img, A, output, category)
+            cams[category] = cam
+
+        return cams

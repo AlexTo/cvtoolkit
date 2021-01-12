@@ -56,6 +56,7 @@ if __name__ == '__main__':
     img = img[:, :, ::-1]
     input_img = preprocess_image(img)
 
-    cam = gradcam(input_img)
-    cam = show_cam_on_image(img, cam)
-    cv2.imwrite(args.output_path, cam)
+    cams = gradcam(input_img)
+    for c in cams:
+        cam = show_cam_on_image(img, cams[c])
+        cv2.imwrite(args.output_path, cam)
