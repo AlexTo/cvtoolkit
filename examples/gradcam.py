@@ -49,7 +49,7 @@ if __name__ == '__main__':
     args = get_args()
 
     model = models.resnet50(pretrained=True)
-    gradcam = GradCAM(model, target_module=model.layer4, target_layer=model.layer4[2])
+    gradcam = GradCAM(model, target_module=model.layer4[2])
     img = cv2.imread(args.input_path, 1)
     img = np.float32(img) / 255
     # Opencv loads as BGR:
