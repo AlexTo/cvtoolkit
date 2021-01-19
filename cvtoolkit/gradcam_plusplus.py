@@ -1,59 +1,55 @@
 import cv2
 import torch
 import numpy as np
+from cvtoolkit.cam import CAM
 
 
-class GradCAMPlusPlus:
-    def __init__(self, model, target_module, target_layer, use_cuda=True):
-        self.model = model
-        self.use_cuda = use_cuda
-        self.model.eval()
-        if use_cuda:
-            self.model = model.cuda()
+class GradCAMPlusPlus(CAM):
 
-        self.target_module = target_module
-        self.target_layer = target_layer
-        self.saved_gradient = None
+    def __init__(self, model, target_module, use_cuda=True):
+        super(GradCAMPlusPlus, self).__init__(model, target_module, use_cuda)
 
-    def save_gradient(self, grad):
-        self.saved_gradient = grad
-
-    def __call__(self, img, target_category=None):
+    def forward(self, img, target_categories=None):
+        cams = {}
         if self.use_cuda:
             img = img.cuda()
-        img.requires_grad_()
 
-        output = img
-        for name, module in self.model.named_children():
-            if module == self.target_module:
-                for _, sub_module in module.named_children():
-                    A = sub_module(output)
-                    output = A
-                    if sub_module == self.target_layer:
-                        output.register_hook(self.save_gradient)
-            else:
-                output = module(output)
+        logits = self.model(img)
+        if target_categories is None:
+            target_categories = [torch.argmax(logits)]
 
-            if "avgpool" in name.lower():
-                output = output.view(output.size(0), -1)
+        A = self.activation
 
-        if target_category is None:
-            target_category = torch.argmax(output)
+        for target_category in target_categories:
+            one_hot = torch.zeros_like(logits)
+            one_hot[0][target_category] = 1
+            one_hot.requires_grad_()
 
-        one_hot = torch.zeros_like(output)
-        one_hot[0][target_category] = 1
-        one_hot.requires_grad_()
+            sc = torch.sum(one_hot * logits)
+            self.model.zero_grad()
+            sc.backward(retain_graph=True)
+            gradient = self.gradient
+            b, k, _, _ = gradient.size()
 
-        self.model.zero_grad()
+            numerator = gradient.pow(2)
+            denominator = 2 * gradient.pow(2) + A.sum((2, 3)).view(b, k, 1, 1) * gradient.pow(3)
 
-        one_hot = torch.sum(one_hot * output)
-        one_hot.backward(retain_graph=True)
+            alpha = numerator / denominator
 
-        weights = torch.mean(self.saved_gradient, axis=(2, 3))
+            # if use exponential function
+            # d_Yc/d_Akij = d_exp(sc)/d_Akij
+            #             = exp(sc) * d_sc/d_Akij
+            #             = exp(sc) * gradient
 
-        cam = torch.relu(torch.sum(weights[:, :, None, None] * A, dim=1)).squeeze(0)
-        cam = cam.detach().cpu().numpy()
-        cam = cv2.resize(cam, img.shape[2:])
-        cam = cam - np.min(cam)
-        cam = cam / np.max(cam)
-        return cam
+            wc = (alpha * torch.relu(sc.exp() * gradient)).sum((2, 3)).view(b, k, 1, 1)
+            cam = torch.relu(torch.sum(wc.view(b, k, 1, 1) * A, dim=1)).squeeze(0)
+            cam = cam.detach().cpu().numpy()
+            cam = cv2.resize(cam, (img.shape[3], img.shape[2]))
+            cam = cam - np.min(cam)
+            cam = cam / np.max(cam)
+            cams[target_category] = cam
+
+        return cams
+
+    def __call__(self, img, target_categories=None):
+        return super(GradCAMPlusPlus, self).__call__(img, target_categories)

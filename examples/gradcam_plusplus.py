@@ -3,7 +3,7 @@ import numpy as np
 import cv2
 from torchvision import models, transforms
 
-from cvtoolkit.gradcam import GradCAM
+from cvtoolkit.gradcam_plusplus import GradCAMPlusPlus
 
 
 def get_args():
@@ -12,7 +12,7 @@ def get_args():
                         help='Use NVIDIA GPU acceleration')
     parser.add_argument('--input-path', type=str, default='./data/water-bird.jpeg',
                         help='Input image path')
-    parser.add_argument('--output-path', type=str, default='./data/water-bird_gradcam.jpeg',
+    parser.add_argument('--output-path', type=str, default='./data/water-bird_gradcamplusplus.jpeg',
                         help='Output image path')
     return parser.parse_args()
 
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     args = get_args()
 
     model = models.resnet50(pretrained=True)
-    gradcam = GradCAM(model, target_module=model.layer4[2])
+    gradcam = GradCAMPlusPlus(model, target_module=model.layer4[2])
     img = cv2.imread(args.input_path, 1)
     img = np.float32(img) / 255
     # Opencv loads as BGR:
