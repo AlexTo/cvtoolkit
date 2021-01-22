@@ -4,6 +4,7 @@ import cv2
 from torchvision import models, transforms
 
 from cvtoolkit.gradcam_plusplus import GradCAMPlusPlus
+from examples.utils import preprocess_images, show_cam_on_image
 
 
 def get_args():
@@ -17,46 +18,26 @@ def get_args():
     return parser.parse_args()
 
 
-def deprocess_image(img):
-    """ see https://github.com/jacobgil/keras-grad-cam/blob/master/grad-cam.py#L65 """
-    img = img - np.mean(img)
-    img = img / (np.std(img) + 1e-5)
-    img = img * 0.1
-    img = img + 0.5
-    img = np.clip(img, 0, 1)
-    return np.uint8(img * 255)
-
-
-def preprocess_image(img):
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-    preprocessing = transforms.Compose([
-        transforms.ToTensor(),
-        normalize,
-    ])
-    return preprocessing(img.copy()).unsqueeze(0)
-
-
-def show_cam_on_image(img, mask):
-    heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)
-    heatmap = np.float32(heatmap) / 255
-    cam = heatmap + np.float32(img)
-    cam = cam / np.max(cam)
-    return np.uint8(255 * cam)
-
-
 if __name__ == '__main__':
     args = get_args()
 
     model = models.resnet50(pretrained=True)
     gradcam = GradCAMPlusPlus(model, target_module=model.layer4[2])
-    img = cv2.imread(args.input_path, 1)
-    img = np.float32(img) / 255
-    # Opencv loads as BGR:
-    img = img[:, :, ::-1]
-    input_img = preprocess_image(img)
 
-    cams = gradcam(input_img)
-    for c in cams:
-        cam = show_cam_on_image(img, cams[c])
-        cv2.imwrite(args.output_path, cam)
+    img1 = cv2.imread("data/cat_dog.png", 1)
+    img1 = np.float32(cv2.resize(img1, (448, 448))) / 255
+    img1 = img1[:, :, ::-1]
+
+    img2 = cv2.imread("data/water-bird.jpeg", 1)
+    img2 = np.float32(cv2.resize(img2, (448, 448))) / 255
+    img2 = img2[:, :, ::-1]
+
+    images = np.array([img1, img2])
+    input_images = preprocess_images(images)
+
+    batch_cams = gradcam(input_images)
+    for i, cams in enumerate(batch_cams):
+        img = images[i]
+        for c in cams:
+            cam = show_cam_on_image(img, cams[c])
+            cv2.imwrite(f"data/gradcampp_{i}.jpg", cam)

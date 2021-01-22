@@ -18,10 +18,10 @@ class CAM:
         self.saved_gradient = None
 
     def backward_hook(self, module, grad_input, grad_output):
-        self.gradient = grad_output[0]
+        self.gradients = grad_output[0]
 
     def forward_hook(self, module, input, output):
-        self.activation = output
+        self.activations = output
 
     @abstractmethod
     def forward(self, img, target_categories=None):

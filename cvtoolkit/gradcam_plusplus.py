@@ -9,47 +9,54 @@ class GradCAMPlusPlus(CAM):
     def __init__(self, model, target_module, use_cuda=True):
         super(GradCAMPlusPlus, self).__init__(model, target_module, use_cuda)
 
-    def forward(self, img, target_categories=None):
-        cams = {}
+    def forward(self, images, batch_targets=None):
+        batch_cams = []
         if self.use_cuda:
-            img = img.cuda()
+            images = images.cuda()
 
-        logits = self.model(img)
-        if target_categories is None:
-            target_categories = [torch.argmax(logits)]
+        logits = self.model(images)
+        batch, num_classes = logits.shape
 
-        A = self.activation
+        if batch_targets is None:
+            batch_targets = torch.argmax(logits, dim=1, keepdim=True)
 
-        for target_category in target_categories:
-            one_hot = torch.zeros_like(logits)
-            one_hot[0][target_category] = 1
-            one_hot.requires_grad_()
+        for i in range(batch):
+            cams = {}
+            targets = batch_targets[i]
 
-            sc = torch.sum(one_hot * logits)
-            self.model.zero_grad()
-            sc.backward(retain_graph=True)
-            gradient = self.gradient
-            b, k, _, _ = gradient.size()
+            A = self.activations[i]
 
-            numerator = gradient.pow(2)
-            denominator = 2 * gradient.pow(2) + A.sum((2, 3)).view(b, k, 1, 1) * gradient.pow(3)
+            for target in targets:
+                one_hot = torch.zeros_like(logits[i])
+                one_hot[target] = 1
+                one_hot.requires_grad_()
 
-            alpha = numerator / denominator
+                sc = torch.sum(one_hot * logits[i])
+                self.model.zero_grad()
+                sc.backward(retain_graph=True)
+                gradients = self.gradients[i]
+                k, _, _ = gradients.size()
 
-            # if use exponential function
-            # d_Yc/d_Akij = d_exp(sc)/d_Akij
-            #             = exp(sc) * d_sc/d_Akij
-            #             = exp(sc) * gradient
+                numerator = gradients.pow(2)
+                denominator = 2 * gradients.pow(2) + A.sum((1, 2)).view(k, 1, 1) * gradients.pow(3)
 
-            wc = (alpha * torch.relu(sc.exp() * gradient)).sum((2, 3)).view(b, k, 1, 1)
-            cam = torch.relu(torch.sum(wc.view(b, k, 1, 1) * A, dim=1)).squeeze(0)
-            cam = cam.detach().cpu().numpy()
-            cam = cv2.resize(cam, (img.shape[3], img.shape[2]))
-            cam = cam - np.min(cam)
-            cam = cam / np.max(cam)
-            cams[target_category] = cam
+                alpha = numerator / denominator
 
-        return cams
+                # if use exponential function
+                # d_Yc/d_Akij = d_exp(sc)/d_Akij
+                #             = exp(sc) * d_sc/d_Akij
+                #             = exp(sc) * gradient
+
+                wc = (alpha * torch.relu(sc.exp() * gradients)).sum((1, 2)).view(k, 1, 1)
+                cam = torch.relu(torch.sum(wc.view(k, 1, 1) * A, dim=0)).squeeze(0)
+                cam = cam.detach().cpu().numpy()
+                cam = cv2.resize(cam, (images.shape[3], images.shape[2]))
+                cam = cam - np.min(cam)
+                cam = cam / np.max(cam)
+                cams[target] = cam
+            batch_cams.append(cams)
+
+        return batch_cams
 
     def __call__(self, img, target_categories=None):
         return super(GradCAMPlusPlus, self).__call__(img, target_categories)
