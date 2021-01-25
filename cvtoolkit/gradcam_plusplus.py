@@ -9,18 +9,18 @@ class GradCAMPlusPlus(CAM):
     def __init__(self, model, target_module, use_cuda=True):
         super(GradCAMPlusPlus, self).__init__(model, target_module, use_cuda)
 
-    def forward(self, img, target_categories=None):
+    def forward(self, img, targets=None):
         cams = {}
         if self.use_cuda:
             img = img.cuda()
 
         logits = self.model(img)
-        if target_categories is None:
-            target_categories = [torch.argmax(logits)]
+        if targets is None:
+            targets = [torch.argmax(logits)]
 
         A = self.activation
 
-        for target_category in target_categories:
+        for target_category in targets:
             one_hot = torch.zeros_like(logits)
             one_hot[0][target_category] = 1
             one_hot.requires_grad_()
@@ -51,5 +51,5 @@ class GradCAMPlusPlus(CAM):
 
         return cams
 
-    def __call__(self, img, target_categories=None):
-        return super(GradCAMPlusPlus, self).__call__(img, target_categories)
+    def __call__(self, img, targets=None):
+        return super(GradCAMPlusPlus, self).__call__(img, targets)

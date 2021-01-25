@@ -24,9 +24,9 @@ class CAM:
         self.activation = output
 
     @abstractmethod
-    def forward(self, img, target_categories=None):
+    def forward(self, img, targets=None):
         pass
 
     @abstractmethod
-    def __call__(self, img, target_categories=None):
-        return self.forward(img, target_categories)
+    def __call__(self, img, targets=None):
+        return self.forward(img, targets)
