@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 import torch
 
-from cvtoolkit.graphcam import gcn_resnet101
+from cvtoolkit.graphcam import graph_cam
 from cvtoolkit.utils import preprocess_image, show_cam_on_image
 
 
@@ -38,8 +38,8 @@ if __name__ == '__main__':
 
     num_classes = 80
 
-    graph_cam = gcn_resnet101(num_classes=num_classes, t=args.adj_threshold, adj_file=args.adj_path,
-                              in_channel=args.embedding_length)
+    graph_cam = graph_cam(num_classes=num_classes, t=args.adj_threshold, adj_file=args.adj_path,
+                          in_channel=args.embedding_length)
 
     with open(args.embedding, 'rb') as f:
         embedding = torch.from_numpy(pickle.load(f))
@@ -55,18 +55,9 @@ if __name__ == '__main__':
     img = img[:, :, ::-1]
     input_img = preprocess_image(img)
 
-    preds, A, w = graph_cam(input_img, embedding, return_cam=True)
-    _, k, _, _ = A.shape
+    cams = graph_cam(input_img, embedding, return_cam=True, targets=[20, 28])
 
-    labels = [20, 28]  # cat, dog
-    for label in labels:
-        wc = w[:, label].view(k, 1, 1)
-        cam = torch.relu(torch.sum(wc * A[0], dim=0)).detach().cpu().numpy()
-        cam = cv2.resize(cam, (img.shape[1], img.shape[0]))
-        cam = cam - np.min(cam)
-        cam = cam / np.max(cam)
-        cam = show_cam_on_image(img, cam)
-
+    for c in cams:
+        cam = show_cam_on_image(img, cams[c])
         filename, fileext = os.path.splitext(os.path.basename(args.input_path))
-
-        cv2.imwrite(os.path.join(args.output_path, f"{filename}_graphcam_{label}{fileext}"), cam)
+        cv2.imwrite(os.path.join(args.output_path, f"{filename}_graphcam_{c}{fileext}"), cam)

@@ -1,5 +1,6 @@
 import math
-
+import cv2
+import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -44,9 +45,10 @@ class GraphConvolution(nn.Module):
                + str(self.out_features) + ')'
 
 
-class GCNResnet(nn.Module):
-    def __init__(self, model, num_classes, in_channel=300, t=0, adj_file=None):
-        super(GCNResnet, self).__init__()
+class GraphCAM(nn.Module):
+    def __init__(self, model, num_classes, in_channel=300, t=0, adj_file=None, use_cuda=True):
+        super(GraphCAM, self).__init__()
+        self.use_cuda = use_cuda
         self.features = nn.Sequential(
             model.conv1,
             model.bn1,
@@ -70,8 +72,12 @@ class GCNResnet(nn.Module):
         self.image_normalization_mean = [0.485, 0.456, 0.406]
         self.image_normalization_std = [0.229, 0.224, 0.225]
 
-    def forward(self, feature, inp, return_cam=False):
-        A = self.features(feature)
+    def forward(self, img, inp, return_cam=False, targets=None):
+        cams = {}
+        if self.use_cuda:
+            img = img.cuda()
+        A = self.features(img)
+        _, k, _, _ = A.shape
         feature = self.pooling(A)
         feature = feature.view(feature.size(0), -1)
 
@@ -81,20 +87,24 @@ class GCNResnet(nn.Module):
         w = self.gc2(w, adj)
 
         w = w.transpose(0, 1)
-        output = torch.matmul(feature, w)
+        logits = torch.matmul(feature, w)
+
         if not return_cam:
-            return output
+            return logits
         else:
-            return output, A, w
+            if targets is None:
+                targets = [torch.argmax(logits)]
+            for target in targets:
+                wc = w[:, target].view(k, 1, 1)
+                cam = torch.relu(torch.sum(wc * A[0], dim=0)).detach().cpu().numpy()
+                cam = cv2.resize(cam, (img.shape[3], img.shape[2]))
+                cam = cam - np.min(cam)
+                cam = cam / np.max(cam)
+                cams[target] = cam
 
-    def get_config_optim(self, lr, lrp):
-        return [
-            {'params': self.features.parameters(), 'lr': lr * lrp},
-            {'params': self.gc1.parameters(), 'lr': lr},
-            {'params': self.gc2.parameters(), 'lr': lr},
-        ]
+            return cams
 
 
-def gcn_resnet101(num_classes, t, pretrained=True, adj_file=None, in_channel=300):
+def graph_cam(num_classes, t, pretrained=True, adj_file=None, in_channel=300, use_cuda=True):
     model = models.resnet101(pretrained=pretrained)
-    return GCNResnet(model, num_classes, t=t, adj_file=adj_file, in_channel=in_channel)
+    return GraphCAM(model, num_classes, t=t, adj_file=adj_file, in_channel=in_channel, use_cuda=use_cuda)

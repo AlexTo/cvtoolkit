@@ -1,4 +1,6 @@
 import argparse
+import os
+
 import numpy as np
 import cv2
 from torchvision import models, transforms
@@ -13,7 +15,7 @@ def get_args():
                         help='Use NVIDIA GPU acceleration')
     parser.add_argument('--input-path', type=str, default='./data/images/cat_dog.png',
                         help='Input image path')
-    parser.add_argument('--output-path', type=str, default='./output/cat_dog_gradcam.png',
+    parser.add_argument('--output-path', type=str, default='./output/',
                         help='Output image path')
     return parser.parse_args()
 
@@ -32,4 +34,5 @@ if __name__ == '__main__':
     cams = gradcam(input_img)
     for c in cams:
         cam = show_cam_on_image(img, cams[c])
-        cv2.imwrite(args.output_path, cam)
+        filename, fileext = os.path.splitext(os.path.basename(args.input_path))
+        cv2.imwrite(os.path.join(args.output_path, f"{filename}_gradcam_{c}{fileext}"), cam)

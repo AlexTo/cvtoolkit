@@ -26,9 +26,9 @@ class GradCAM(CAM):
 
         A = self.activation
 
-        for target_category in targets:
+        for target in targets:
             one_hot = torch.zeros_like(logits)
-            one_hot[0][target_category] = 1
+            one_hot[0][target] = 1
             one_hot.requires_grad_()
 
             yc = torch.sum(one_hot * logits)
@@ -43,7 +43,7 @@ class GradCAM(CAM):
             cam = cv2.resize(cam, (img.shape[3], img.shape[2]))
             cam = cam - np.min(cam)
             cam = cam / np.max(cam)
-            cams[target_category] = cam
+            cams[target] = cam
         return cams
 
     def __call__(self, img, targets=None):
