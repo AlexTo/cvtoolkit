@@ -15,36 +15,35 @@ class GradCAM(CAM):
     def forward_hook(self, module, input, output):
         self.activation = output
 
-    def forward(self, img, targets=None):
-        cams = {}
-        if self.use_cuda:
-            img = img.cuda()
+    def forward(self, imgs, targets=None, return_cam=False):
 
-        logits = self.model(img)
-        if targets is None:
-            targets = [torch.argmax(logits)]
+        logits = self.model(imgs)
+        if not return_cam:
+            return {"logits": logits}
+
+        cams = []
 
         A = self.activation
+        b, k, w, h = A.size()
+        num_classes = targets.shape[1]
+        for c in range(num_classes):
+            logits_c = logits[:, c]
+            targets_c = targets[:, c]
+            if targets_c.sum() == 0:
+                cam = torch.zeros(b, w, h).cuda()
+            else:
+                yc = torch.sum(logits_c * targets_c)
+                self.model.zero_grad()
+                yc.backward(retain_graph=True)
+                gradient = self.gradient
+                wc = torch.mean(gradient, axis=(2, 3))
+                cam = torch.relu(
+                    torch.sum(wc.view(b, k, 1, 1) * A, dim=1))
+            cams.append(cam)
 
-        for target in targets:
-            one_hot = torch.zeros_like(logits)
-            one_hot[0][target] = 1
-            one_hot.requires_grad_()
-
-            yc = torch.sum(one_hot * logits)
-            self.model.zero_grad()
-            yc.backward(retain_graph=True)
-            gradient = self.gradient
-            b, k, _, _ = gradient.size()
-
-            wc = torch.mean(gradient, axis=(2, 3))
-            cam = torch.relu(torch.sum(wc.view(b, k, 1, 1) * A, dim=1)).squeeze(0)
-            cam = cam.detach().cpu().numpy()
-            cam = cv2.resize(cam, (img.shape[3], img.shape[2]))
-            cam = cam - np.min(cam)
-            cam = cam / np.max(cam)
-            cams[target] = cam
-        return cams
+        return {
+            "logits": logits,
+            "cams": torch.stack(cams, dim=1)}
 
     def __call__(self, img, targets=None):
         return super(GradCAM, self).__call__(img, targets)
